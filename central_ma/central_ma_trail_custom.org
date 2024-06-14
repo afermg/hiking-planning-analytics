@@ -1,0 +1,159 @@
+#+title: Bay East Trail custom route
+#+PROPERTY: header-args :exports both
+Distance options for a hike to central MA. Sections based on [[https://www.google.com/maps/d/u/0/viewer?mid=1AMHwcwaFVLGlBWzyEA63m4Q_sZqXW5c&femb=1&ll=42.37334221636003%2C-71.32091141518515&z=13][this]] map.
+* Special dependencies
+- xml-to-json-fast
+
+* In-out
+- Commuter rail to lincoln/concord
+- Bus/Commuter rail from Kendall Green 
+
+* Data acquisition and processing
+Download the official map made/hosted on google maps and get the important information: section id and len_miles.
+** Download Map KLM
+Convert to json for easier parsing (xml freezes my emacs).
+#+begin_src bash
+wget -O - "http://www.google.com/maps/d/kml?forcekml=1&mid=1AMHwcwaFVLGlBWzyEA63m4Q_sZqXW5c" | /nix/store/768bvdhz51clgvnpqjxqj78g4x5md2ha-xml-to-json-fast-2.0.0/bin/xml-to-json-fast > map.json
+#+end_src
+
+#+RESULTS:
+
+
+** Find distances
+Parse the lines that contain the length and the id.
+#+NAME: fid-miles
+#+begin_src bash :results silent
+grep "FID.*TRAIL_NAME" map.json | tr -d ' ' |  sed -E 's/.*FID([0-9]+).*LEN_MILES([0-9]+.[0-9]+).*/\1,\2/'
+#+end_src
+
+#+RESULTS:
+
+There are two routes. We want to what is the difference.
+** concord->lincoln
+This is is the extra distance when walking from concord. The advantage is that we se Walden pond.
+#+NAME: concord->lincoln
+- 252
+- 580-585
+- 574
+- 630
+- 610-614
+#+begin_src elisp
+(defun ranges->list (ranges) (apply '-concat
+       (mapcar (lambda (x) (if (numberp x)
+                               (list x)
+                               (apply 'number-sequence
+                                    (mapcar 'string-to-number (string-split x "-")))))
+               ranges)))
+#+end_src
+
+#+RESULTS:
+: ranges->list
+
+Now get all the entries in the input that correspond to concord->lincoln and sum them.
+#+begin_src elisp :tangle yes
+(defun sum-where (values idx-to-sum)
+ (-sum (mapcar (lambda (x) (cadr (assoc x values) )) idx-to-sum)))
+#+end_src
+
+#+RESULTS:
+: sum-where
+
+#+begin_src elisp :var input=fid-miles :var fids=concord->lincoln
+(setq concord->lincoln (sum-where input (ranges->list fids)) )
+#+end_src
+
+#+RESULTS:
+: 5.190000000000001
+
+** Fork section
+*** Short
+- 616-625
+
+#+begin_src elisp :var distances=fid-miles
+(setq short-route (sum-where distances (number-sequence 616 625)) )
+ #+end_src
+
+ #+RESULTS:
+ : 5.5130300000000005
+
+
+*** Long
+#+NAME: long-route-ids
+- 616
+- 253
+- 632
+- 4
+- 2
+- 254
+- 46
+- 533
+- 45
+- 255
+- 579
+- 47
+- 256
+- 89
+- 6
+- 257
+- 631
+- 258
+- 90
+- 259
+- 260
+- 5
+- 261
+- 262
+- 263
+- 91
+- 264
+- 609
+- 626
+
+#+begin_src elisp :var distances=fid-miles :var ids=long-route-ids
+(setq long-route (sum-where distances ids))
+ #+end_src
+
+ #+RESULTS:
+ : 11.610000000000001
+
+*** Add this if long + lincoln or short + concord
+If we take the long route fron Lincoln we need to trace back a bit to take the long route.
+These are two sections so I added them manually.
+#+begin_src elisp :var distances=fid-miles
+(setq wildcard (sum-where distances '(617 618)))
+ #+end_src
+
+ #+RESULTS:
+ : 0.47
+
+** Central mass section
+Add the final section back
+#+begin_src elisp :tangle yes
+(setq mass-rail 1.7)
+#+end_src
+
+#+RESULTS:
+: 1.7
+
+** Combine it all
+And convert to KMs. This are the four routes and the output is their respective length in Kms.
+#+begin_src elisp :tangle yes
+(mapcar (lambda (x) (* x 1.69))
+        (list
+         (+ short-route wildcard mass-rail)
+         (+ long-route (- wildcard) mass-rail)
+         (+ concord->lincoln short-route wildcard mass-rail)
+         (+ concord->lincoln long-route (- wildcard) mass-rail)
+         ))
+#+end_src
+
+#+RESULTS:
+| 12.9843207 | 21.6996 | 21.755420700000002 | 30.470700000000008 |
+
+* Resources
+- [[https://www.baycircuit.org/maps-guides/][Maps]] of sections
+
+* TODO
+- Add emacs as flake dep
+- Link flake packages to org babel (see [[https://discourse.nixos.org/t/nix-shells-in-emacs-org-mode-source-blocks/12673][this]] shebangs issue).
+- Add an emacs oneliner to run the file and update the results
